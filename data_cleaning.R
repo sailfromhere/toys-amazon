@@ -1,4 +1,5 @@
 library(tidyverse)
+library(lubridate)
 
 # import data
 
@@ -58,15 +59,15 @@ df3 <- df2 %>%
     average_review_rating = 
       # parse as number
       parse_number(
-        # extract the numbers
+        # extract the ratings
         str_extract(
           average_review_rating, 
           # use regular expression to 
-          # look for the numbers
+          # look for the ratings
           "[:digit:]\\.[:digit:](?=[:space:])"
-          )
         )
-    )
+      )
+  )
 df3[,"average_review_rating"]
 
 ## product description
@@ -101,6 +102,8 @@ product <- df4
 # clean cat dataframe
 
 df1 <- cat %>%
+  # drop na rows
+  drop_na() %>%
   # separate each product's categories
   separate(amazon_category_and_sub_category,
            # into a main category
@@ -113,7 +116,93 @@ df1
 # output to cat dataframe
 cat <- df1
 
-# clean also_bought dataframes
+# clean also_bought and bought_after dataframes
+
+# define a function to clean amazon urls
+# takes in 4 arguments:
+# 1. dataframe, 2. column to operate on,
+# 3. new columns/keys to turn that column into,
+# 4. number of new columns/keys
+clean_amzn_url <- function(data, col, into, n) {
+  
+  tmp <- data
+  
+  # clean urls into product names
+  tmp[[col]] <-
+    tmp[[col]] %>%
+    # remove head of urls
+    str_remove_all("http://www.amazon.co.uk/") %>%
+    # replace dashes with spaces
+    str_replace_all("\\-", " ") %>%
+    # remove tail of urls
+    str_remove_all("(?<=\\/dp\\/)[:alnum:]*(?=[:space:]\\|[:space:])") %>%
+    # remove tail of the last url in a cell
+    str_remove("(?<=\\/dp\\/)[:alnum:]*(?![:blank:])") %>%
+    # remove the remnant of urls
+    str_remove_all("\\/dp\\/")
+  
+  tmp <- tmp %>%
+    # separate each product into a new column
+    separate(col,
+             into = c(paste0(into, 1:n)),
+             sep = " \\| ") %>%
+    # gather new columns into clean format
+    pivot_longer(c(paste0(into, 1:n)), 
+                 names_to = paste0(into, "_key"), 
+                 values_to = paste0(into, "_product")) %>%
+    # order by uniq_id
+    arrange(uniq_id) %>%
+    # drop na rows
+    drop_na()
+
+  return(tmp)
+  
+}
+
+# use the function to clean also_bought dataframe
+also_bought <- also_bought %>%
+  clean_amzn_url(col = "customers_who_bought_this_item_also_bought",
+                 into = "also_bought",
+                 # max of 12 also_bought products
+                 n = 12)
+
+# use the function to clean bought_after_viewing dataframe
+bought_after <- bought_after %>%
+  clean_amzn_url(col = "items_customers_buy_after_viewing_this_item",
+                 into = "bought_after_viewing",
+                 # max of 4 bought_after_viewing products
+                 n = 4)
+
+head(also_bought)
+head(bought_after)
+
+# clean qa dataframe
+
+# separate the variable into 10 columns
+df1 <- qa %>%
+  # drop na columns
+  drop_na() %>%
+  # separate into 10 qa sets
+  separate(customer_questions_and_answers,
+           into = c(paste0("set", 1:10)),
+           sep = " \\| ")
+
+df2 <- df1 %>%
+  # gather qa sets into clean format
+  pivot_longer(c(paste0("set", 1:10)),
+               names_to = "question_set",
+               values_to = "question_answer") %>%
+  drop_na()
+
+df3 <- df2 %>%
+  separate("question_answer",
+           into = c("question", "answer"),
+           sep = " // ")
+
+head(df3)
+qa <- df3
+
+
 
 
 
