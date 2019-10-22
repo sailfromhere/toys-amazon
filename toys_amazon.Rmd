@@ -9,24 +9,28 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r libraries, echo=FALSE}
+```{r libraries, include=FALSE}
 
 library(tidyverse)
 library(lubridate)
 
 ```
 
-## Appendix I
-## Metadata
+## Discussion
 
-## Appendix II
-## Sample Code
+## 
+
+## Appendix I: Metadata
+
+## Appendix II: Sample Code
+
+### Data Cleaning
 
 This section includes samples of the code I wrote to clean the original dataset. I mainly used packages within `tidyverse`, for example, `readr` to import and export data, `dplyr` and `tidyr` to reshape the dataset into clean format, and `stringr` to manipulate string variables using regular expression. I also used the `lubridate` package to parse dates. Functions and loops were also used to write more efficient code.
 
-### import data
+In a major overhaul from the previous work I've done on the cleaning of this dataset, I split the dataset into 7 dataframes first, before I started to clean the data. I defined a function to clean the amazon urls, a major improvement of code efficiency over my previous work. I reduced the use of loops this time in data cleaning, because loops are less efficient and take longer to run; instead, I focused on cleaning string data cells first before separating them into different columns, removing the need to loop. At last, I focused more on using regular expression and the "look around" expressions this time around.
 
-I used the `readr` package to read the data and specify column type.
+I used the `readr` package to read the data and specify column type:
 
 ```{r import data, eval=FALSE}
 
@@ -36,9 +40,7 @@ Toys_Amazon <- read_csv("Toys_Amazon.csv",
 
 ```
 
-### split data
-
-I used the `dplyr` package to split the data into 7 dataframes.
+I used the `dplyr` package to split the data into 7 dataframes:
 
 ```{r split data, eval=FALSE}
 
@@ -67,8 +69,6 @@ sellers <- Toys_Amazon %>%
   select(uniq_id, sellers)
 
 ```
-
-### clean the product dataframe with tidyverse
 
 Multiple techniques were used to clean the `product` dataframe. To demonstrate, I used the `mutate()` function in the `dplyr` package to transform the `price` variable into numbers:
 
@@ -134,8 +134,6 @@ tmp <- tmp %>%
 
 ```
 
-### function to clean amazon url
-
 Variables `customers_who_bought_this_item_also_bought` and `items_customers_buy_after_viewing_this_item` are very similar: they are both a collection of amazon urls associated with each observation. To reduce the redundancy of my code, I wrote a function to clean these urls and applied it to the two variables.
 
 ```{r function, eval=FALSE}
@@ -190,8 +188,6 @@ bought_after <- bought_after %>%
 
 ```
 
-### use pivot_longer() to gather data
-
 I used the `pivot_longer()` function (formerly the `gather()` function) in the `tidyr` package a lot to gather the data into clean format. To demonstrate, below is my code, which includes the use of `pivot_longer()` to clean the `qa` dataframe:
 
 ```{r pivot, eval=F}
@@ -218,8 +214,6 @@ df3 <- df2 %>%
 
 ```
 
-### use loops
-
 Loops are also used in the process of data cleaning. One example is then I loop over the `reviews` dataframe to replace empty `reviewer_credential` variable cells with `NA`s:
 
 ```{r loop, eval=FALSE}
@@ -234,6 +228,20 @@ for (i in 1:nrow(df1)) {
 ```
 
 A combination of the above functions and techniques was also used to clean the `cat`, `also_bought`, `bought_after`, and `sellers` dataframes.
+
+At last, I used the `write_csv()` function to export the 7 clean dataframes into `.csv` files.
+
+```{r export data, eval=FALSE}
+
+write_csv(also_bought, "also_bought.csv")
+write_csv(bought_after, "bought_after.csv")
+write_csv(cat, "category.csv")
+write_csv(product, "product.csv")
+write_csv(qa, "question_answer.csv")
+write_csv(reviews, "reviews.csv")
+write_csv(sellers, "sellers.csv")
+
+```
 
 
 
