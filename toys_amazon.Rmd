@@ -13,14 +13,405 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(lubridate)
+library(PerformanceAnalytics)
+library(tidytext)
 
 ```
 
 ## Discussion
 
-## 
+Review ratings of a product not only can be an indicator for the perception of said product, they can also affect potential customers' decision to whether make the purchase or not. As a result, ratings are a metrics every seller should pay attention to. In this Amazon Toys dataset of 10K observations, the rating of each product should be under the spotlight. Exploring this dataset and applying data modeling techniques, I was able to illustrate how the brand of a toy or the category a toy belongs to affects its ratings, and show that availability, number of reviews, price, and the sentiment expressed by the reviews all play a part in predicting the ratings of a product
+
+## Data quality
+
+This dataset comes in an untidy format. Namely, some variables need to be turned into numerics, many variables need to be separated into different variables, many non-content syntax need to be removed, two variables are identical, and a review sentiment variable needs to be added to perform sentiment analysis and model building. For a complete metadata of the cleaned datasets, see Appendix I.
+
+#### Untidy data
+
+There are several variables that are problematic and need to be addressed:
+
+* **price** is not numeric and has currency symbol attached
+
+* **number_available_in_stock** has both the number and the condition
+
+* **average_review_rating** is a character variable that has "out of 5 stars" at the end of every entry
+
+* **amazon_category_and_sub_category** puts all the categories and subcategories together
+
+* **customers_who_bought_this_item_also_bought** is in url form and has several urls in single cells
+
+* **items_customers_buy_after_viewing_this_item** is in url form and has several urls in single cells
+
+* **customer_questions_and_answers** puts all pairs of questions and answers in single cells
+
+* **customer_reviews** has all the reviews in single entries
+
+* **sellers** has all the seller information in single entries
+
+#### Missing values
+
+Missing data is present throughout the dataset, but since the dataset has 10,000 observations, I do not anticipate missing values to present a serious problem.
+
+#### Data completeness
+
+The current collection of variables is adequate to perform most analysis. However, a review sentiment variable needs to be added to perform sentiment analysis and model building.
+
+#### Other data issue
+
+**description** and **product_description** have identical content, so one of the redundant variable should be removed.
+
+## Data Cleaning
+
+Pre-cleaned data was loaded for the analysis. In the process of data cleaning, I mainly used packages within `tidyverse`, for example, `readr` to import and export data, `dplyr` and `tidyr` to clean and tidy the dataset into tidy format, and `stringr` to manipulate string variables using regular expression. I also used the `lubridate` package to parse dates. Functions and loops were also used to write more efficient code. For sample code of data cleaning, please refer to the **Data Cleaning** section of Appendix II.
+
+## Data Exploration to Better Understand Review Ratings
+
+```{r read data, include=FALSE}
+
+also_bought <- read_csv("also_bought.csv")
+bought_after <- read_csv("bought_after.csv")
+cat <- read_csv("category.csv",
+                col_types = cols(sub_cat4 = col_character()))
+product <- read_csv("product.csv")
+qa <- read_csv("question_answer.csv")
+reviews <- read_csv("reviews.csv")
+sellers <- read_csv("sellers.csv")
+
+```
+
+In this section, we are going to dive into the review ratings with several visualizations (using the `ggplot2`) to illustrate:
+
+* What do the ratings look like
+
+* Some factors that explains the ratings
+
+* Sentiment analysis and how sentiment scores affect ratings
+
+### Disecting Ratings
+
+The distribution of the average ratings is extremely left-skewed:
+
+```{r rating distribution, echo=FALSE, warning=FALSE}
+
+ggplot(product) +
+  geom_density(aes(average_review_rating)) +
+  labs(title = "Distribution of Average Rating",
+       x = "Average Rating",
+       y = "Density") +
+  theme_classic()
+
+```
+
+The majority of the products has a perfect 5-star ratings, and a lot gather around 4-star ratings. Some ratings distribute between 4 and 5 stars, but very few are below 4 stars. The ratings lack variability, which will present a major challenge in this study to explain what causes ratings to change.
+
+One explaination of the lack of variability in ratings is the number of votes:
+
+```{r number vote, echo=FALSE}
+
+ggplot(filter(product, number_of_reviews < 50)) +
+  geom_histogram(aes(number_of_reviews), bins = 30) +
+  labs(title = "Distribution of Number of Reviews",
+       x = "Number of Reviews",
+       y = "Frequency") +
+  theme_classic()
+
+```
+
+We can see that the majority of the products has very few reviews, which means a single review can largely determine the average rating. If the product has only one review, which is the case in this dataset, then the dense 5- or 4-star ratings can be explained.
+
+### Categories and Brands
+
+Categories and brands are two factors that can explain the review ratings. I found the most dominant categories and manufactures in this dataset can plotted how they correlate with ratings.
+
+The top categories are hobbies, die-cast & toy vehicles, figures & playsets, etc.
+
+```{r cat viz, echo=FALSE}
+
+# joing dataframes
+
+df <- left_join(product, cat, by = "uniq_id")
+
+# summarize category by count
+category <- df %>% 
+  group_by(category) %>% 
+  summarize(n = n()) %>%
+  arrange(desc(n))
+# get the top 10 categories by count
+topcat <- filter(
+  category, 
+  # filter out categories other than top 10
+  n >= 350,
+  # remove na
+  !is.na(category)
+)
+# save the top 10 as a vector for future filtering and ordering
+topcatv <- topcat$category
+# plot top 10 categories by count
+cat_plot <- ggplot(data = filter(category, category %in% topcatv)) +
+  geom_bar(aes(x = reorder(category, n), 
+               y = n,
+               fill = topcatv), 
+           stat = "identity") +
+  labs(title = "Most Popular Categories by Frequency",
+       x = "Categories",
+       y = "Frequency") +
+  coord_flip() +
+  theme_classic() +
+  theme(legend.position = "none")
+cat_plot
+
+```
+
+The most popular manufacturers are LEGO, Disney, Oxford Diecast, etc.
+
+```{r plot top brands, echo=FALSE}
+# summarize manufacturer by count
+brand <- df %>% 
+  group_by(manufacturer) %>% 
+  summarize(n = n()) %>%
+  arrange(desc(n))
+# get the top 10 brands by count
+topbrand <- filter(
+  brand,
+  # filter out brands other than top 10
+  n >= 90,
+  # remove na
+  !is.na(manufacturer)
+)
+# save the top 10 as a vector for future filtering and ordering
+topbrandv <- topbrand$manufacturer
+# plot top 10 brands by count
+brand_plot <- ggplot(data = filter(brand, manufacturer %in% topbrandv)) +
+  geom_bar(aes(x = reorder(manufacturer, n), 
+               y = n, 
+               fill = topbrandv), 
+           stat = "identity") +
+  labs(title = "Most Popular Brands by Frequency",
+       x = "Brands",
+       y = "Frequency") +
+  coord_flip() +
+  theme_classic() +
+  theme(legend.position = "none")
+brand_plot
+```
+
+To find which categories are more likely be get good reviews, I need to filter out categories with too few products because Some categories have only one product and easily have the best avearge reviews. Then I plot the top 10 categories (n > 30) with the best average reviews.
+
+```{r cat vs review, warning=FALSE, echo=FALSE}
+topreviewcat <- filter(df, number_of_reviews >1) %>%
+  group_by(category) %>% 
+  summarize(avgrating = mean(average_review_rating, na.rm = T), n = n()) %>%
+  arrange(desc(avgrating))
+
+topreviewcat <- topreviewcat %>%
+  filter(n>30)
+
+# save the top 10 as a vector for future filtering and ordering
+topreviewcatv <- c(topreviewcat$category[c(1:3,5:11)], "Other")
+
+# create a variable that identifies top reviewed categories
+df$topreviewcat <- ifelse(df$category %in% topreviewcatv, 
+                            df$category, 
+                            "Other")
+# plot a boxplot using best reviewed categories and the average rating
+ggplot(filter(df, number_of_reviews >1)) +
+  geom_boxplot(
+    aes(factor(topreviewcat, levels = topreviewcatv), 
+        average_review_rating,
+        fill = topreviewcat)
+  ) +
+  labs(title = "Best Reviewed Categories (minimun reviews each product = 2)",
+       x = "Categories (n > 30)",
+       y = "Average Ratings") +
+  coord_flip() +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+For n > 30, categories such as "Dolls & Accessories", "Puppets & Puppet Theatres", "Jigsaws & Puzzles" tend to get better reviews.
+
+I use the same method to plot the top brands that has tend to get good reviews.
+
+```{r brand vs review, echo=FALSE}
+# summarize top brands by average rating
+topreviewbrand <- filter(df, number_of_reviews > 1) %>%
+  group_by(manufacturer) %>% 
+  summarize(avgrating = mean(average_review_rating, na.rm = T), n = n()) %>%
+  arrange(desc(avgrating))
+
+# remove brands where n <= 30
+topreviewbrand <- topreviewbrand %>%
+  filter(n>30)
+
+# save the top 10 as a vector for future filtering and ordering
+topreviewbrandv <- c(topreviewbrand$manufacturer[1:10], "Other")
+
+# create a variable that identifies top reviewed brands
+df$topreviewbrand <- ifelse(df$manufacturer %in% topreviewbrandv,
+                              df$manufacturer,
+                              "Other")
+# plot a boxplot using best reviewed brands and the average rating
+ggplot(filter(df, number_of_reviews > 1)) +
+  geom_boxplot(
+    aes(factor(topreviewbrand, levels = topreviewbrandv), 
+        average_review_rating,
+        fill = topreviewbrand)
+  ) +
+  labs(title = "Best Reviewed Brands (minimum reviews each product = 2)",
+       x = "Brands (n > 30)",
+       y = "Average Ratings") +
+  coord_flip() +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+We can see that brands such as LEGO, Schleich, The Puppet Company tend to get good reviews.
+
+### Sentiment Analysis
+
+Another major factor to affect review ratings are the reviews themselves. If a customer expresses positive sentiment in their reviews, then they are more likely to leave a positive rating. 
+
+To understand what sentiment a review expresses, we need to perform a sentiment analysis. This process basically breaks down each review into individual words, each assgined a sentiment score from negative sentiment to positive sentiment. The score of each review is then added up to represent the overall sentiment of a review.
+
+I used the `PerformanceAnalytics` and `tidytext` packages for this analysis.
+
+An example of the first 10 products' review sentiment is shown below:
+
+```{r sentiment, echo=FALSE}
+
+# unnest words
+review_words <- reviews %>%
+  select(uniq_id, review) %>%
+  unnest_tokens(word, review) %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "^[a-z']+$"))
+
+# get afinn scores for words
+AFINN <- get_sentiments("afinn")
+
+# take the average sentiment score of each product
+review_sentiments <- review_words %>%
+  inner_join(AFINN, by = "word") %>%
+  group_by(uniq_id) %>%
+  summarise(sentiment = mean(value))
+
+review_sentiments
+
+```
+
+The relationship between sentiment scores and average ratings are as follows:
+
+```{r sentiment vs rating, message=FALSE, echo=FALSE}
+
+# join dataframes
+reg <- product %>%
+  left_join(select(cat, uniq_id, category),
+            by = "uniq_id") %>%
+  left_join(review_sentiments,
+            by = "uniq_id") %>%
+  drop_na()
+
+# plot scatterpolot
+ggplot(reg, aes(sentiment, average_review_rating)) +
+  geom_point() +
+  geom_smooth(se = F) +
+  labs(title = "Sentiment Score vs Review Ratings",
+       x = "Sentiment",
+       y = "Average Ratings") +
+  theme_classic()
+
+```
+
+We can see that in general, more positive sentiment correlates with higher ratings, but extremely high or low sentiment may have the opposite effect. This may be due to the analysis' inability to detect sarcasm. This suggests that a cubic term of the sentiment scores can be used to explain review ratings.
+
+## Modeling the Ratings
+
+Using the analysis above, I was able to build a linear model that can predict a product's review ratings. This model has an explanatory power of 45%. The result of the model is shown below:
+
+```{r model, echo=FALSE}
+
+mod <- lm(average_review_rating ~ number_available + log(number_of_reviews) +
+           log(price) + sentiment + I(sentiment^2) + I(sentiment^3) + category +
+           manufacturer, 
+           data = reg)
+
+r2 <- summary(mod)$r.squared
+adjr2 <- summary(mod)$adj.r.squared
+
+c(r2 = r2, adjr2 = adjr2)
+
+```
+
+Although the adjusted r-squared is much lower than the r-squared score, it can be explained by the numerous levels added by the manufacturer and category variables, thus taking heavy penalty for the score benchmark. However, an ANOVA analysis proves that the inclusion of manufacturer and category is significant.
+
+Finally, the model I built to predict the average review ratings has the following dependent variables:
+
+* **available stock**. Higher availability results in higher ratings. An explanation of this relationship is that products with limited stock may have slower shipping speed, resulting in unhappy customers.
+
+* log of **number of reviews**. More reviews decreases the average ratings. People unhappy with the products may be more likely to write reviews.
+
+* log of **price**. Higher prices indicates higher ratings. It is possible that a higher price generally means higher quality.
+
+* cubic terms of **sentiment score** of the reviews. Generally, the more positivity a product gets for its reviews, the higher its ratings are, but extreme sentiments may have diminishing returns.
+
+* **category**
+
+* **manufacturer**
 
 ## Appendix I: Metadata
+
+#### Product
+
+* **uniq_id** (char): the unique identifier of each product
+* **product_name** (char): name of the product
+* **manufacturer** (char): name of the manufacturer
+* **price** (num): price of the product in British Pounds
+* **number_available** (int): the available stock of the product
+* **condition** (char): the condition of the product, new or used
+* **number_of_reviews** (int): number of reviews of the product
+* **number_of_answered_questions** (int): number of answered questions of the product
+* **average_review_rating** (num): the average rating out of 5 stars
+* **discription** (char) and **product_information** (char): description and technical details about the product
+
+#### Category
+
+* **uniq_id** (char): the unique identifier of each product
+* **category** (char): the category of the product
+* **sub_cat1-4** (char): the sub categories of the product
+
+#### Also Bought
+
+* **uniq_id** (char): the unique identifier of each product
+* **also_bought_key** (char): together with uniq_id to uniquely identify an also_bought product
+* **also_bought_product** (char): product customers also bought with each product
+
+#### Bought after Viewing
+
+* **uniq_id** (char): the unique identifier of each product
+* **bought_after_key** (char): together with uniq_id to uniquely identify an bought_after product
+* **bought_after_product** (char): product customers bought after viewing each product
+
+#### Question and Answer
+
+* **uniq_id** (char): the unique identifier of each product
+* **question** (char): question of each product
+* **answer** (char): answer to the question
+
+#### Reviews
+
+* **uniq_id** (char): the unique identifier of each product
+* **review_title** (char): title of the review
+* **review_rating** (int): the review's rating out of 5 stars
+* **review_date** (char): date of the review
+* **reviewer** (char): name of the reviewer
+* **reviewer_credential** (char): reviewr's credential, if any
+* **review** (char): content of the review
+
+#### Sellers
+
+* **uniq_id** (char): the unique identifier of each product
+* **seller** (char): name of the seller
+* **price** (num): price of the product with this seller
 
 ## Appendix II: Sample Code
 
@@ -243,10 +634,83 @@ write_csv(sellers, "sellers.csv")
 
 ```
 
+### Data Visualization
 
+I used the `ggplot2` package to visualize data. A good example of the code is the bar chart I plotted for the top 10 manufacturers, where I filter the dataset with only the top 10 brands, reorder the chart in decending order, fill each brand with a different color to be more visually pleasing, and applied a simplistic theme and appropiete labels to draw a clear graph:
 
+```{r data viz, eval=FALSE}
 
+brand_plot <- ggplot(data = filter(brand, manufacturer %in% topbrandv)) +
+  geom_bar(aes(x = reorder(manufacturer, n), 
+               y = n, 
+               fill = topbrandv), 
+           stat = "identity") +
+  labs(title = "Most Popular Brands by Frequency",
+       x = "Brands",
+       y = "Frequency") +
+  coord_flip() +
+  theme_classic() +
+  theme(legend.position = "none")
+brand_plot
 
+```
+
+### Sentiment Analysis
+
+I used the `PerformanceAnalytics` and `tidytext` packages for this analysis. I unnested each review into words, filtered out stop words, which are commonly used words that can skew our sentiments, and assign a sentiment score to each word then summed them up.
+
+```{r sentiment code, eval=FALSE}
+
+# unnest words
+review_words <- reviews %>%
+  select(uniq_id, review) %>%
+  unnest_tokens(word, review) %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "^[a-z']+$"))
+
+# get afinn scores for words
+AFINN <- get_sentiments("afinn")
+
+# take the average sentiment score of each product
+review_sentiments <- review_words %>%
+  inner_join(AFINN, by = "word") %>%
+  group_by(uniq_id) %>%
+  summarise(sentiment = mean(value))
+
+```
+
+### Linear Modeling
+
+I used the `lm()` function in the base R package to build linear models.
+
+```{r linear model, eval=FALSE}
+
+mod <- lm(average_review_rating ~ number_available + log(number_of_reviews) +
+           log(price) + sentiment + I(sentiment^2) + I(sentiment^3) + category +
+           manufacturer, 
+           data = reg)
+
+r2 <- summary(mod)$r.squared
+adjr2 <- summary(mod)$adj.r.squared
+
+```
+
+I also performed anova analysis to evaluate the significance of variables:
+
+```{r anova, eval=FALSE}
+
+mod6 <- lm(average_review_rating ~ number_available + log(number_of_reviews) +
+           log(price) + sentiment + I(sentiment^2) + I(sentiment^3) + category, 
+           data = reg)
+
+mod7 <- lm(average_review_rating ~ number_available + log(number_of_reviews) +
+           log(price) + sentiment + I(sentiment^2) + I(sentiment^3) + category +
+           manufacturer, 
+           data = reg)
+
+anova(mod7, mod6)
+
+```
 
 
 
