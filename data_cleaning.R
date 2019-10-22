@@ -150,8 +150,6 @@ clean_amzn_url <- function(data, col, into, n) {
     pivot_longer(c(paste0(into, 1:n)), 
                  names_to = paste0(into, "_key"), 
                  values_to = paste0(into, "_product")) %>%
-    # order by uniq_id
-    arrange(uniq_id) %>%
     # drop na rows
     drop_na()
 
@@ -180,21 +178,21 @@ head(bought_after)
 
 # separate the variable into 10 columns
 df1 <- qa %>%
-  # drop na columns
-  drop_na() %>%
   # separate into 10 qa sets
   separate(customer_questions_and_answers,
-           into = c(paste0("set", 1:10)),
+           into = c(paste0("question_set", 1:10)),
            sep = " \\| ")
 
 df2 <- df1 %>%
   # gather qa sets into clean format
-  pivot_longer(c(paste0("set", 1:10)),
-               names_to = "question_set",
+  pivot_longer(c(paste0("question_set", 1:10)),
+               names_to = "question_sets",
                values_to = "question_answer") %>%
+  # drop na columns
   drop_na()
 
 df3 <- df2 %>%
+  # separate each qa set into question & answer
   separate("question_answer",
            into = c("question", "answer"),
            sep = " // ")
@@ -202,14 +200,107 @@ df3 <- df2 %>%
 head(df3)
 qa <- df3
 
+# clean reviews dataframe
 
+df1 <- reviews %>%
+  # separate into review sets
+  separate(customer_reviews,
+           into = c(paste0("review_set", 1:8)),
+           sep = " \\| ") %>%
+  # gather new columns into clean format
+  pivot_longer(c(paste0("review_set", 1:8)),
+               names_to = "review_sets",
+               values_to = "tmp") %>%
+  # drop na rows
+  drop_na() %>%
+  # separate each review set into components
+  separate(tmp,
+           into = c("review_title", 
+                    "review_rating",
+                    "review_date",
+                    "reviewer",
+                    "review"),
+           sep = " // ") %>%
+  # separate reviewer from irrelevant info
+  separate(reviewer,
+           into = c("t1", "t2",
+                    "reviewer",
+                    "t3", "cred"),
+           sep = "\n") %>%
+  # separate actual reviewer credentials
+  separate(cred,
+           into = c("reviewer_credential",
+                    "t4"),
+           sep = (" on ")) %>%
+  # drop temporary columns
+  select(-c(t1, t2, t3, t4)) %>%
+  # parse rating as numeric
+  mutate(review_rating = parse_number(review_rating)) %>%
+  # parse date as date using lubridate
+  mutate(review_date = dmy(review_date))
 
+# remove white space before reviewer names
+df1$reviewer <- df1$reviewer %>%
+  str_replace("    ", "")
 
+# replace credential with NA if cell is empty
+for (i in 1:nrow(df1)) {
+  df1[i, "reviewer_credential"] <-
+    ifelse(df1[i, "reviewer_credential"] != "",
+           df1[i, "reviewer_credential"],
+           NA)
+}
 
+head(df1)
+reviews <- df1
 
+# clean sellers dataframe
 
+# separate into 20 seller sets
+df1 <- sellers %>%
+  separate(sellers,
+           into = c("temp",
+                    paste0("seller_set", 1:20)),
+           sep = "Seller_name") %>%
+  select(-temp)
 
+# gather sellers
+df2 <- df1 %>%
+  pivot_longer(c(paste0("seller_set", 1:20)), 
+               names_to = "seller_sets", 
+               values_to = "col") %>%
+  drop_na()
 
+# separate seller name and price
+df3 <- df2 %>%
+  separate(col, into = c("seller", "price"),
+           sep = '\\"\\, \\"')
+
+# clean up seller name
+df3$seller <- str_extract(df3$seller, 
+                          '(?<=\\"\\=\\>\\").*')
+
+# clean up seller price
+df3$price <- as.numeric(
+  str_extract(df3$price,
+              '(?<=£).*(?=\\"\\})')
+)
+
+head(df3)
+sellers <- df3
+
+# export
+
+write_csv(also_bought, "also_bought.csv")
+write_csv(bought_after, "bought_after.csv")
+write_csv(cat, "category.csv")
+write_csv(product, "product.csv")
+write_csv(qa, "question_answer.csv")
+write_csv(reviews, "reviews.csv")
+write_csv(sellers, "sellers.csv")
+
+# clean up environment
+rm(list = c(ls()))
 
 
 
